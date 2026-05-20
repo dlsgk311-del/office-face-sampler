@@ -551,7 +551,7 @@
     const memeText = document.getElementById("memeText");
 
     let currentAudio = null;
-    let preparedAudio = null;
+    let primedAudio = null;
     let cameraStream = null;
     let isAnalyzing = false;
     let lastIndex = -1;
@@ -566,28 +566,61 @@
 
     analyzeButton.addEventListener("click", startAnalysis);
 
-    // 브라우저 오디오 자동재생 정책 회피용:
-    // 사용자가 직접 "관상 분석하기"를 누른 그 순간, 아주 작은 볼륨으로 오디오 권한을 먼저 열어둔다.
-    function prepareAudioForMobileAndSharedLinks(audioPath) {
-      if (preparedAudio) {
-        preparedAudio.pause();
-        preparedAudio.currentTime = 0;
+    // iPhone/Safari 대응 핵심:
+    // 3초 뒤에 새로 audio.play()를 호출하면 자동재생으로 판단되어 막힐 수 있다.
+    // 그래서 사용자가 "관상 분석하기"를 누른 바로 그 순간, 선택된 오디오를 무음/반복으로 먼저 재생해둔다.
+    // 3초 뒤에는 새 play()를 하는 게 아니라, 이미 재생 중인 오디오를 처음으로 되감고 소리만 켠다.
+    function stopAudio(audio) {
+      if (!audio) return;
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch (error) {}
+    }
+
+    function primeAudioForPhone(audioPath) {
+      stopAudio(currentAudio);
+      stopAudio(primedAudio);
+
+      primedAudio = new Audio(audioPath);
+      primedAudio.preload = "auto";
+      primedAudio.loop = true;
+      primedAudio.muted = true;
+      primedAudio.playsInline = true;
+      primedAudio.setAttribute("playsinline", "");
+      primedAudio.setAttribute("webkit-playsinline", "");
+
+      // DOM에 붙여두면 모바일 Safari에서 동적 오디오보다 안정적이다.
+      primedAudio.style.display = "none";
+      document.body.appendChild(primedAudio);
+
+      const playPromise = primedAudio.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+          // 여기서 팝업은 띄우지 않는다. 결과 표시 시점에 한 번 더 조용히 재시도한다.
+        });
+      }
+    }
+
+    function playPrimedAudio(sample) {
+      const audio = primedAudio || new Audio(sample.audio);
+      currentAudio = audio;
+
+      try {
+        audio.loop = false;
+        audio.muted = false;
+        audio.volume = 1;
+        audio.currentTime = 0;
+      } catch (error) {}
+
+      const playPromise = audio.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+          showCameraError("소리가 막혔습니다. iPhone 무음 모드를 끄고, Safari/Chrome에서 다시 열어주세요.");
+        });
       }
 
-      preparedAudio = new Audio(audioPath);
-      preparedAudio.preload = "auto";
-      preparedAudio.volume = 0.001;
-
-      return preparedAudio.play()
-        .then(() => {
-          preparedAudio.pause();
-          preparedAudio.currentTime = 0;
-          preparedAudio.volume = 1;
-        })
-        .catch(() => {
-          // 일부 브라우저는 준비 재생도 막을 수 있다.
-          // 그래도 실제 결과 시점에서 한 번 더 재생을 시도한다.
-        });
+      primedAudio = null;
     }
 
     async function startCamera() {
@@ -646,15 +679,10 @@
         cameraStream = null;
       }
 
-      if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
-      }
-
-      if (preparedAudio) {
-        preparedAudio.pause();
-        preparedAudio.currentTime = 0;
-      }
+      stopAudio(currentAudio);
+      stopAudio(primedAudio);
+      currentAudio = null;
+      primedAudio = null;
 
       video.srcObject = null;
       video.style.display = "none";
@@ -692,14 +720,9 @@
       const randomIndex = getRandomIndex();
       const selectedSample = samples[randomIndex];
 
-      if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
-      }
-
-      // 핵심 수정:
-      // 랜덤으로 고른 오디오를 버튼 클릭 순간에 미리 깨워둔다.
-      await prepareAudioForMobileAndSharedLinks(selectedSample.audio);
+      // 핵심 수정: 클릭 순간에 선택된 오디오를 무음으로 먼저 재생해둔다.
+      // 이 상태를 3초 동안 유지했다가 결과 순간에 소리만 켠다.
+      primeAudioForPhone(selectedSample.audio);
 
       cameraStatus.className = "status loading";
       cameraStatus.innerHTML = '<span class="dot"></span> ANALYZING';
@@ -739,25 +762,6 @@
     function playResult(index) {
       const sample = samples[index];
 
-      // 준비해둔 오디오가 있으면 그것을 그대로 재생한다.
-      if (preparedAudio && preparedAudio.src.includes(encodeURI(sample.audio).replace(/\//g, "%2F")) === false) {
-        preparedAudio.pause();
-        preparedAudio.currentTime = 0;
-        preparedAudio = null;
-      }
-
-      currentAudio = preparedAudio || new Audio(sample.audio);
-      currentAudio.volume = 1;
-      currentAudio.currentTime = 0;
-
-      currentAudio.play().catch(() => {
-        // 팝업 대신 화면 안내로 바꿈. 친구들한테 덜 거슬림.
-        cameraSubtitle.textContent = sample.text;
-        showCameraError("브라우저가 소리만 막았습니다. 화면 결과는 정상입니다. 소리가 안 나면 관상 분석하기를 한 번 더 눌러주세요.");
-      });
-
-      preparedAudio = null;
-
       cameraSubtitle.textContent = sample.text;
       emojiArt.textContent = sample.emoji;
       cardTitle.textContent = sample.title;
@@ -769,16 +773,16 @@
       void imageCard.offsetWidth;
       imageCard.classList.add("pop");
       screen.classList.add("flash");
+
+      playPrimedAudio(sample);
     }
 
     // 시연자용 숨겨진 단축키: 숫자 1~5를 누르면 특정 멘트를 강제로 재생
     window.addEventListener("keydown", (event) => {
       const keyNumber = Number(event.key);
       if (keyNumber >= 1 && keyNumber <= 5 && !isAnalyzing) {
-        if (currentAudio) {
-          currentAudio.pause();
-          currentAudio.currentTime = 0;
-        }
+        stopAudio(currentAudio);
+        stopAudio(primedAudio);
         currentAudio = new Audio(samples[keyNumber - 1].audio);
         currentAudio.play().catch(() => {});
         cameraSubtitle.textContent = samples[keyNumber - 1].text;
