@@ -60,11 +60,6 @@
       word-break: keep-all;
     }
 
-    .app {
-      display: grid;
-      gap: 20px;
-    }
-
     .screen {
       position: relative;
       min-height: 710px;
@@ -218,9 +213,7 @@
       backdrop-filter: blur(2px);
     }
 
-    .analyzing-overlay.show {
-      display: grid;
-    }
+    .analyzing-overlay.show { display: grid; }
 
     .analyzing-text {
       padding: 22px 34px;
@@ -274,8 +267,7 @@
       min-width: min(100%, 450px);
       padding: 23px 34px;
       border-radius: 999px;
-      background:
-        linear-gradient(135deg, #ff4fd8, #7c5cff 48%, #42ebff);
+      background: linear-gradient(135deg, #ff4fd8, #7c5cff 48%, #42ebff);
       color: white;
       font-size: clamp(25px, 4vw, 42px);
       font-weight: 1000;
@@ -492,7 +484,7 @@
       </div>
 
       <div class="helper">
-        화면에는 샘플 버튼이 없습니다. 사용자는 “관상 분석하기”만 누르면 됩니다.
+        친구에게 공유할 때는 GitHub Pages처럼 https 주소로 여는 게 가장 안정적입니다.
       </div>
     </section>
   </main>
@@ -559,6 +551,7 @@
     const memeText = document.getElementById("memeText");
 
     let currentAudio = null;
+    let preparedAudio = null;
     let cameraStream = null;
     let isAnalyzing = false;
     let lastIndex = -1;
@@ -572,6 +565,30 @@
     });
 
     analyzeButton.addEventListener("click", startAnalysis);
+
+    // 브라우저 오디오 자동재생 정책 회피용:
+    // 사용자가 직접 "관상 분석하기"를 누른 그 순간, 아주 작은 볼륨으로 오디오 권한을 먼저 열어둔다.
+    function prepareAudioForMobileAndSharedLinks(audioPath) {
+      if (preparedAudio) {
+        preparedAudio.pause();
+        preparedAudio.currentTime = 0;
+      }
+
+      preparedAudio = new Audio(audioPath);
+      preparedAudio.preload = "auto";
+      preparedAudio.volume = 0.001;
+
+      return preparedAudio.play()
+        .then(() => {
+          preparedAudio.pause();
+          preparedAudio.currentTime = 0;
+          preparedAudio.volume = 1;
+        })
+        .catch(() => {
+          // 일부 브라우저는 준비 재생도 막을 수 있다.
+          // 그래도 실제 결과 시점에서 한 번 더 재생을 시도한다.
+        });
+    }
 
     async function startCamera() {
       cameraError.style.display = "none";
@@ -629,6 +646,16 @@
         cameraStream = null;
       }
 
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+      }
+
+      if (preparedAudio) {
+        preparedAudio.pause();
+        preparedAudio.currentTime = 0;
+      }
+
       video.srcObject = null;
       video.style.display = "none";
       cameraPlaceholder.style.display = "grid";
@@ -656,16 +683,23 @@
       cameraError.style.display = "block";
     }
 
-    function startAnalysis() {
+    async function startAnalysis() {
       if (!cameraStream || isAnalyzing) return;
 
       isAnalyzing = true;
       analyzeButton.disabled = true;
 
+      const randomIndex = getRandomIndex();
+      const selectedSample = samples[randomIndex];
+
       if (currentAudio) {
         currentAudio.pause();
         currentAudio.currentTime = 0;
       }
+
+      // 핵심 수정:
+      // 랜덤으로 고른 오디오를 버튼 클릭 순간에 미리 깨워둔다.
+      await prepareAudioForMobileAndSharedLinks(selectedSample.audio);
 
       cameraStatus.className = "status loading";
       cameraStatus.innerHTML = '<span class="dot"></span> ANALYZING';
@@ -679,7 +713,6 @@
       memeText.textContent = "잠시만요. 회사생활 자아를 스캔 중입니다.";
 
       setTimeout(() => {
-        const randomIndex = getRandomIndex();
         analyzingOverlay.classList.remove("show");
         playResult(randomIndex);
 
@@ -706,10 +739,24 @@
     function playResult(index) {
       const sample = samples[index];
 
-      currentAudio = new Audio(sample.audio);
+      // 준비해둔 오디오가 있으면 그것을 그대로 재생한다.
+      if (preparedAudio && preparedAudio.src.includes(encodeURI(sample.audio).replace(/\//g, "%2F")) === false) {
+        preparedAudio.pause();
+        preparedAudio.currentTime = 0;
+        preparedAudio = null;
+      }
+
+      currentAudio = preparedAudio || new Audio(sample.audio);
+      currentAudio.volume = 1;
+      currentAudio.currentTime = 0;
+
       currentAudio.play().catch(() => {
-        alert("브라우저가 오디오 재생을 막았습니다. 관상 분석하기 버튼을 한 번 더 눌러주세요.");
+        // 팝업 대신 화면 안내로 바꿈. 친구들한테 덜 거슬림.
+        cameraSubtitle.textContent = sample.text;
+        showCameraError("브라우저가 소리만 막았습니다. 화면 결과는 정상입니다. 소리가 안 나면 관상 분석하기를 한 번 더 눌러주세요.");
       });
+
+      preparedAudio = null;
 
       cameraSubtitle.textContent = sample.text;
       emojiArt.textContent = sample.emoji;
@@ -728,7 +775,17 @@
     window.addEventListener("keydown", (event) => {
       const keyNumber = Number(event.key);
       if (keyNumber >= 1 && keyNumber <= 5 && !isAnalyzing) {
-        playResult(keyNumber - 1);
+        if (currentAudio) {
+          currentAudio.pause();
+          currentAudio.currentTime = 0;
+        }
+        currentAudio = new Audio(samples[keyNumber - 1].audio);
+        currentAudio.play().catch(() => {});
+        cameraSubtitle.textContent = samples[keyNumber - 1].text;
+        emojiArt.textContent = samples[keyNumber - 1].emoji;
+        cardTitle.textContent = samples[keyNumber - 1].title;
+        cardSub.textContent = samples[keyNumber - 1].sub;
+        memeText.textContent = samples[keyNumber - 1].meme;
       }
     });
   </script>
