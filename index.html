@@ -495,11 +495,11 @@
         화면에는 샘플 버튼이 없습니다. 사용자는 “관상 분석하기”만 누르면 됩니다.
       </div>
 
-      <audio id="sampleAudio0" src="assets/01_퇴근10분전_업무.mp3" preload="auto" playsinline></audio>
-      <audio id="sampleAudio1" src="assets/02_에어팟_엑셀.mp3" preload="auto" playsinline></audio>
-      <audio id="sampleAudio2" src="assets/03_칼퇴_팀즈알림.mp3" preload="auto" playsinline></audio>
-      <audio id="sampleAudio3" src="assets/04_업무분배_눈피함.mp3" preload="auto" playsinline></audio>
-      <audio id="sampleAudio4" src="assets/05_상사메시지_수정.mp3" preload="auto" playsinline></audio>
+      <audio id="sampleAudio0" src="assets/sound1.mp3" preload="auto" playsinline></audio>
+      <audio id="sampleAudio1" src="assets/sound2.mp3" preload="auto" playsinline></audio>
+      <audio id="sampleAudio2" src="assets/sound3.mp3" preload="auto" playsinline></audio>
+      <audio id="sampleAudio3" src="assets/sound4.mp3" preload="auto" playsinline></audio>
+      <audio id="sampleAudio4" src="assets/sound5.mp3" preload="auto" playsinline></audio>
 
     </section>
   </main>
@@ -565,10 +565,10 @@
     const cardSub = document.getElementById("cardSub");
     const memeText = document.getElementById("memeText");
 
+    let currentAudio = null;
     let cameraStream = null;
     let isAnalyzing = false;
     let lastIndex = -1;
-    let currentAudio = null;
 
     cameraButton.addEventListener("click", async () => {
       if (cameraStream) {
@@ -580,40 +580,38 @@
 
     analyzeButton.addEventListener("click", startAnalysis);
 
-    function getAudio(sample) {
-      return document.getElementById(sample.audioId);
-    }
-
     function stopCurrentAudio() {
       if (!currentAudio) return;
+
       try {
         currentAudio.pause();
         currentAudio.currentTime = 0;
       } catch (error) {}
+
       currentAudio = null;
     }
 
-    function startAudioImmediately(sample) {
-      // 중요:
-      // iPhone Safari는 3초 뒤 play()를 막는다.
-      // 그래서 사용자가 버튼을 누른 바로 그 순간 audio.play()를 실행한다.
-      // 대신 mp3 파일 앞에 3초 무음을 붙여두었기 때문에 사용자는 분석중 3초 뒤에 소리가 나는 것처럼 느낀다.
+    function playSoundImmediately(sample) {
+      // 어제 성공한 방식과 최대한 동일하게:
+      // 1) <audio> 태그를 HTML에 미리 둔다.
+      // 2) src 파일명은 sound1.mp3처럼 영문만 쓴다.
+      // 3) 사용자가 버튼 누른 즉시 play()한다.
+      // 4) 3초 뒤에는 절대 play()하지 않는다.
       stopCurrentAudio();
 
-      const audio = getAudio(sample);
-      currentAudio = audio;
+      const sound = document.getElementById(sample.audioId);
+      currentAudio = sound;
 
-      audio.pause();
-      audio.currentTime = 0;
-      audio.muted = false;
-      audio.volume = 1;
+      sound.pause();
+      sound.currentTime = 0;
+      sound.muted = false;
+      sound.volume = 1;
 
-      const playPromise = audio.play();
-      if (playPromise && typeof playPromise.catch === "function") {
-        playPromise.catch(() => {
-          // 팝업/오류 문구를 띄우지 않음.
-          // iPhone에서 alert가 뜨면 사용자 경험이 망가지므로 화면 결과는 그대로 진행한다.
-          console.warn("Audio play was blocked by the browser.");
+      const p = sound.play();
+
+      if (p && typeof p.catch === "function") {
+        p.catch((error) => {
+          console.log("sound play failed", error);
         });
       }
     }
@@ -712,8 +710,9 @@
       const randomIndex = getRandomIndex();
       const selectedSample = samples[randomIndex];
 
-      // 소리는 여기서 즉시 시작한다. 파일 앞부분 3초는 무음이다.
-      startAudioImmediately(selectedSample);
+      // 소리는 여기서 즉시 시작한다.
+      // sound1.mp3~sound5.mp3 안에 "찰칵음 + 3초 대기 + 멘트"가 들어 있다.
+      playSoundImmediately(selectedSample);
 
       cameraStatus.className = "status loading";
       cameraStatus.innerHTML = '<span class="dot"></span> ANALYZING';
@@ -765,16 +764,6 @@
       imageCard.classList.add("pop");
       screen.classList.add("flash");
     }
-
-    // 시연자용 숨겨진 단축키
-    window.addEventListener("keydown", (event) => {
-      const keyNumber = Number(event.key);
-      if (keyNumber >= 1 && keyNumber <= 5 && !isAnalyzing) {
-        const sample = samples[keyNumber - 1];
-        startAudioImmediately(sample);
-        setTimeout(() => showResult(keyNumber - 1), 3000);
-      }
-    });
   </script>
 </body>
 </html>
