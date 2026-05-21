@@ -1,27 +1,25 @@
-직장인 관상 샘플러 - ASCII 파일명 소리 수정 버전
+직장인 관상 샘플러 - 카메라 복구 + 오디오 수정 버전
 
-이번 수정 핵심:
-1. 화면/UI는 유지했습니다.
-2. 오디오 파일명을 전부 영문으로 바꿨습니다.
-   - assets/sound1.mp3
-   - assets/sound2.mp3
-   - assets/sound3.mp3
-   - assets/sound4.mp3
-   - assets/sound5.mp3
-3. 어제 성공했던 샘플러처럼 <audio> 태그를 HTML에 미리 넣었습니다.
-4. 관상 분석하기 버튼을 누르는 즉시 audio.play()를 실행합니다.
-5. 3초 뒤에는 play()를 다시 호출하지 않습니다.
-6. 각 mp3 파일 안에 짧은 찰칵음 + 약 3초 대기 + 실제 멘트가 들어 있습니다.
+이번 버전의 기준:
+- 카메라가 정상 작동하던 office_face_sampler_final 버전을 기준으로 복구했습니다.
+- 카메라 관련 로직은 기존 정상 버전의 방식으로 되돌렸습니다.
+- 오디오만 iPhone 대응 방식으로 수정했습니다.
+
+오디오 수정:
+- assets/sound1.mp3 ~ sound5.mp3 영문 파일명 사용
+- HTML에 audio 태그 미리 배치
+- 관상 분석하기 버튼 클릭 즉시 play()
+- 3초 뒤 play() 재호출 없음
+- 각 mp3 안에 짧은 찰칵음 + 약 3초 대기 + 실제 멘트 포함
 
 GitHub 업데이트:
-- index.html
-- README.txt
-- assets 폴더 전체
-
-위 3개를 반드시 모두 덮어쓰기 업로드하세요.
-
-테스트:
-기존 링크 뒤에 ?v=100 을 붙여서 캐시를 피하세요.
+1. 이 ZIP 압축을 풉니다.
+2. 기존 저장소 루트에 아래 3개를 모두 덮어쓰기 업로드합니다.
+   - index.html
+   - README.txt
+   - assets 폴더 전체
+3. Commit changes를 누릅니다.
+4. 테스트 링크 뒤에 ?v=200 을 붙여 캐시를 피하세요.
 
 예:
-https://사용자명.github.io/저장소명/?v=100
+https://사용자명.github.io/저장소명/?v=200

@@ -592,11 +592,11 @@
     }
 
     function playSoundImmediately(sample) {
-      // 어제 성공한 방식과 최대한 동일하게:
-      // 1) <audio> 태그를 HTML에 미리 둔다.
-      // 2) src 파일명은 sound1.mp3처럼 영문만 쓴다.
-      // 3) 사용자가 버튼 누른 즉시 play()한다.
-      // 4) 3초 뒤에는 절대 play()하지 않는다.
+      // 오디오 해결 방식만 적용:
+      // - sound1.mp3~sound5.mp3 영문 파일명
+      // - HTML에 <audio> 태그 미리 배치
+      // - 사용자가 "관상 분석하기"를 누른 즉시 play()
+      // - 3초 뒤에는 play()를 다시 호출하지 않음
       stopCurrentAudio();
 
       const sound = document.getElementById(sample.audioId);
@@ -607,11 +607,10 @@
       sound.muted = false;
       sound.volume = 1;
 
-      const p = sound.play();
-
-      if (p && typeof p.catch === "function") {
-        p.catch((error) => {
-          console.log("sound play failed", error);
+      const playPromise = sound.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch((error) => {
+          console.log("Audio play failed:", error);
         });
       }
     }
@@ -621,7 +620,7 @@
       cameraError.textContent = "";
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showCameraError("이 브라우저는 카메라 기능을 지원하지 않습니다. Chrome 또는 Safari 최신 버전으로 열어주세요.");
+        showCameraError("이 브라우저는 카메라 기능을 지원하지 않습니다. Chrome 또는 Edge 최신 버전으로 열어주세요.");
         return;
       }
 
@@ -659,7 +658,7 @@
         } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
           message = "연결된 카메라를 찾지 못했습니다. 노트북 카메라나 웹캠 연결을 확인해주세요.";
         } else if (location.protocol === "file:") {
-          message = "파일을 더블클릭해서 열면 카메라가 막힐 수 있습니다. localhost 또는 GitHub Pages로 열어주세요.";
+          message = "파일을 더블클릭해서 열면 카메라가 막힐 수 있습니다. README.txt의 localhost 실행 방법으로 열어주세요.";
         }
 
         showCameraError(message);
@@ -710,8 +709,7 @@
       const randomIndex = getRandomIndex();
       const selectedSample = samples[randomIndex];
 
-      // 소리는 여기서 즉시 시작한다.
-      // sound1.mp3~sound5.mp3 안에 "찰칵음 + 3초 대기 + 멘트"가 들어 있다.
+      // 소리는 즉시 시작. mp3 안에 "찰칵음 + 약 3초 대기 + 멘트"가 들어 있음.
       playSoundImmediately(selectedSample);
 
       cameraStatus.className = "status loading";
@@ -764,6 +762,16 @@
       imageCard.classList.add("pop");
       screen.classList.add("flash");
     }
+
+    // 시연자용 숨겨진 단축키
+    window.addEventListener("keydown", (event) => {
+      const keyNumber = Number(event.key);
+      if (keyNumber >= 1 && keyNumber <= 5 && !isAnalyzing) {
+        const sample = samples[keyNumber - 1];
+        playSoundImmediately(sample);
+        setTimeout(() => showResult(keyNumber - 1), 3000);
+      }
+    });
   </script>
 </body>
 </html>
