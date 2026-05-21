@@ -620,22 +620,45 @@
       cameraError.textContent = "";
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showCameraError("이 브라우저는 카메라 기능을 지원하지 않습니다. Chrome 또는 Edge 최신 버전으로 열어주세요.");
+        showCameraError("이 브라우저는 카메라 기능을 지원하지 않습니다. Safari 또는 Chrome 최신 버전으로 열어주세요.");
         return;
       }
 
       try {
-        cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "user",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        });
+        let stream;
 
+        // 1차: 전면 카메라 요청
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "user" },
+            audio: false
+          });
+        } catch (firstError) {
+          console.log("Front camera request failed. Retrying with video:true", firstError);
+
+          // 2차: 일부 iPhone/브라우저에서 facingMode 때문에 실패할 수 있어 가장 단순한 요청으로 재시도
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        }
+
+        cameraStream = stream;
+
+        video.muted = true;
+        video.setAttribute("muted", "");
+        video.setAttribute("playsinline", "");
+        video.setAttribute("autoplay", "");
         video.srcObject = cameraStream;
         video.style.display = "block";
+
+        // iPhone Safari에서 srcObject만 넣으면 화면이 안 뜨는 경우가 있어 play()를 명시적으로 실행
+        try {
+          await video.play();
+        } catch (playError) {
+          console.log("video.play failed, but stream was attached.", playError);
+        }
+
         cameraPlaceholder.style.display = "none";
         cameraBox.classList.add("camera-on");
 
@@ -651,17 +674,23 @@
         cardSub.textContent = "버튼을 누르면 3초 동안 분석 후 랜덤 결과가 나옵니다.";
         memeText.textContent = "관상 데이터 로딩 완료";
       } catch (error) {
+        console.error("Camera error:", error);
+
         let message = "카메라를 켤 수 없습니다.";
 
-        if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
-          message = "카메라 권한이 거부됐습니다. 브라우저 주소창 왼쪽의 카메라 권한을 허용으로 바꿔주세요.";
+        if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+          message = "카메라는 HTTPS 주소에서만 안정적으로 켜집니다. GitHub Pages 주소가 https:// 로 시작하는지 확인해주세요.";
+        } else if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
+          message = "카메라 권한이 거부됐습니다. 주소창 왼쪽의 카메라 권한을 허용으로 바꾸고 새로고침해주세요.";
         } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
-          message = "연결된 카메라를 찾지 못했습니다. 노트북 카메라나 웹캠 연결을 확인해주세요.";
-        } else if (location.protocol === "file:") {
-          message = "파일을 더블클릭해서 열면 카메라가 막힐 수 있습니다. README.txt의 localhost 실행 방법으로 열어주세요.";
+          message = "연결된 카메라를 찾지 못했습니다. 다른 앱이 카메라를 사용 중인지 확인해주세요.";
+        } else if (error.name === "NotReadableError" || error.name === "TrackStartError") {
+          message = "다른 앱이 카메라를 사용 중이거나 브라우저가 카메라를 점유하지 못했습니다. 카메라 앱/화상회의 앱을 닫고 새로고침해주세요.";
+        } else if (error.name === "OverconstrainedError" || error.name === "ConstraintNotSatisfiedError") {
+          message = "이 기기에서 요청한 카메라 조건을 지원하지 않아 기본 카메라로 다시 시도해야 합니다. 새로고침 후 다시 눌러주세요.";
         }
 
-        showCameraError(message);
+        showCameraError(message + " (" + (error.name || "UnknownError") + ")");
       }
     }
 
