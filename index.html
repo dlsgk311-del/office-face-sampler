@@ -125,6 +125,31 @@
       font-size: 15px;
     }
 
+
+    .camera-select {
+      cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 999px;
+      padding: 12px 14px;
+      color: white;
+      background: rgba(255,255,255,0.12);
+      font-weight: 850;
+      font-size: 14px;
+      max-width: 280px;
+    }
+
+    .camera-select option {
+      color: #111;
+    }
+
+    .top-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
     .camera-btn.stop {
       background: rgba(255,255,255,0.14);
       color: white;
@@ -445,7 +470,12 @@
     <section class="screen" id="screen">
       <div class="top-row">
         <div class="status" id="cameraStatus"><span class="dot"></span> CAMERA OFF</div>
-        <button class="camera-btn" id="cameraButton">카메라 켜기</button>
+        <div class="top-controls">
+          <select class="camera-select" id="cameraSelect">
+            <option value="">기본 카메라</option>
+          </select>
+          <button class="camera-btn" id="cameraButton">카메라 켜기</button>
+        </div>
       </div>
 
       <div class="camera-box" id="cameraBox">
@@ -549,6 +579,7 @@
     ];
 
     const cameraButton = document.getElementById("cameraButton");
+    const cameraSelect = document.getElementById("cameraSelect");
     const analyzeButton = document.getElementById("analyzeButton");
     const cameraStatus = document.getElementById("cameraStatus");
     const cameraBox = document.getElementById("cameraBox");
@@ -580,6 +611,36 @@
 
     analyzeButton.addEventListener("click", startAnalysis);
 
+    window.addEventListener("load", async () => {
+      await refreshCameraList(false);
+    });
+
+    async function refreshCameraList(keepSelection = true) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+
+      const previousValue = cameraSelect.value;
+
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(device => device.kind === "videoinput");
+
+        cameraSelect.innerHTML = '<option value="">기본 카메라</option>';
+
+        videoInputs.forEach((device, index) => {
+          const option = document.createElement("option");
+          option.value = device.deviceId;
+          option.textContent = device.label || `카메라 ${index + 1}`;
+          cameraSelect.appendChild(option);
+        });
+
+        if (keepSelection && previousValue) {
+          cameraSelect.value = previousValue;
+        }
+      } catch (error) {
+        console.log("Camera list refresh failed:", error);
+      }
+    }
+
     function stopCurrentAudio() {
       if (!currentAudio) return;
 
@@ -592,11 +653,6 @@
     }
 
     function playSoundImmediately(sample) {
-      // 오디오 해결 방식만 적용:
-      // - sound1.mp3~sound5.mp3 영문 파일명
-      // - HTML에 <audio> 태그 미리 배치
-      // - 사용자가 "관상 분석하기"를 누른 즉시 play()
-      // - 3초 뒤에는 play()를 다시 호출하지 않음
       stopCurrentAudio();
 
       const sound = document.getElementById(sample.audioId);
@@ -615,48 +671,86 @@
       }
     }
 
+    function stopTracks(stream) {
+      if (!stream) return;
+      stream.getTracks().forEach(track => track.stop());
+    }
+
+    async function tryOpenCameraByDeviceId(deviceId) {
+      const constraints = deviceId
+        ? { video: { deviceId: { exact: deviceId } }, audio: false }
+        : { video: true, audio: false };
+
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    }
+
+    async function openAnyAvailableCamera() {
+      // 1. 사용자가 선택한 카메라부터 시도
+      if (cameraSelect.value) {
+        return await tryOpenCameraByDeviceId(cameraSelect.value);
+      }
+
+      // 2. 기본 카메라 시도
+      try {
+        return await tryOpenCameraByDeviceId("");
+      } catch (defaultError) {
+        console.log("Default camera failed:", defaultError);
+
+        // 3. 기본 카메라가 NotReadableError이면, 다른 카메라를 순서대로 시도
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(device => device.kind === "videoinput");
+
+        let lastError = defaultError;
+
+        for (const device of videoInputs) {
+          try {
+            return await tryOpenCameraByDeviceId(device.deviceId);
+          } catch (error) {
+            console.log("Camera failed:", device.label || device.deviceId, error);
+            lastError = error;
+          }
+        }
+
+        throw lastError;
+      }
+    }
+
     async function startCamera() {
       cameraError.style.display = "none";
       cameraError.textContent = "";
 
+      const isSecure =
+        location.protocol === "https:" ||
+        location.hostname === "localhost" ||
+        location.hostname === "127.0.0.1";
+
+      if (!isSecure) {
+        showCameraError("카메라는 HTTPS 주소에서만 켜집니다. GitHub Pages의 https:// 주소로 직접 열어주세요. 현재 주소: " + location.href);
+        return;
+      }
+
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showCameraError("이 브라우저는 카메라 기능을 지원하지 않습니다. Safari 또는 Chrome 최신 버전으로 열어주세요.");
+        showCameraError("이 브라우저는 카메라 기능을 지원하지 않거나 권한이 차단되어 있습니다. Chrome 또는 Edge 최신 버전에서 다시 열어주세요.");
         return;
       }
 
       try {
-        let stream;
+        await refreshCameraList(true);
 
-        // 1차: 전면 카메라 요청
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user" },
-            audio: false
-          });
-        } catch (firstError) {
-          console.log("Front camera request failed. Retrying with video:true", firstError);
-
-          // 2차: 일부 iPhone/브라우저에서 facingMode 때문에 실패할 수 있어 가장 단순한 요청으로 재시도
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false
-          });
-        }
-
-        cameraStream = stream;
+        cameraStream = await openAnyAvailableCamera();
 
         video.muted = true;
+        video.playsInline = true;
         video.setAttribute("muted", "");
         video.setAttribute("playsinline", "");
         video.setAttribute("autoplay", "");
         video.srcObject = cameraStream;
         video.style.display = "block";
 
-        // iPhone Safari에서 srcObject만 넣으면 화면이 안 뜨는 경우가 있어 play()를 명시적으로 실행
         try {
           await video.play();
         } catch (playError) {
-          console.log("video.play failed, but stream was attached.", playError);
+          console.log("video.play warning:", playError);
         }
 
         cameraPlaceholder.style.display = "none";
@@ -673,30 +767,52 @@
         cardTitle.textContent = "얼굴 인식 준비 완료";
         cardSub.textContent = "버튼을 누르면 3초 동안 분석 후 랜덤 결과가 나옵니다.";
         memeText.textContent = "관상 데이터 로딩 완료";
+
+        await refreshCameraList(true);
       } catch (error) {
         console.error("Camera error:", error);
 
-        let message = "카메라를 켤 수 없습니다.";
-
-        if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
-          message = "카메라는 HTTPS 주소에서만 안정적으로 켜집니다. GitHub Pages 주소가 https:// 로 시작하는지 확인해주세요.";
-        } else if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
-          message = "카메라 권한이 거부됐습니다. 주소창 왼쪽의 카메라 권한을 허용으로 바꾸고 새로고침해주세요.";
-        } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
-          message = "연결된 카메라를 찾지 못했습니다. 다른 앱이 카메라를 사용 중인지 확인해주세요.";
-        } else if (error.name === "NotReadableError" || error.name === "TrackStartError") {
-          message = "다른 앱이 카메라를 사용 중이거나 브라우저가 카메라를 점유하지 못했습니다. 카메라 앱/화상회의 앱을 닫고 새로고침해주세요.";
-        } else if (error.name === "OverconstrainedError" || error.name === "ConstraintNotSatisfiedError") {
-          message = "이 기기에서 요청한 카메라 조건을 지원하지 않아 기본 카메라로 다시 시도해야 합니다. 새로고침 후 다시 눌러주세요.";
+        let deviceInfo = "";
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoInputs = devices.filter(device => device.kind === "videoinput");
+          const labels = videoInputs.map((device, index) => device.label || `카메라 ${index + 1}`).join(", ");
+          deviceInfo = " / 감지된 카메라 수: " + videoInputs.length + (labels ? " / 목록: " + labels : "");
+        } catch (deviceError) {
+          deviceInfo = " / 카메라 목록 확인 실패";
         }
 
-        showCameraError(message + " (" + (error.name || "UnknownError") + ")");
+        let message = "카메라를 켤 수 없습니다.";
+
+        if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
+          message =
+            "카메라 권한이 거부됐습니다. Chrome/Edge 주소창 왼쪽 자물쇠 아이콘 → 사이트 설정 → 카메라 → 허용으로 바꾸고 새로고침하세요.";
+        } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
+          message =
+            "카메라 장치를 찾지 못했습니다. Windows 설정에서 카메라 접근이 켜져 있는지 확인하세요.";
+        } else if (error.name === "NotReadableError" || error.name === "TrackStartError") {
+          message =
+            "브라우저가 카메라 장치를 찾았지만 시작하지 못했습니다. 위 카메라 선택 박스에서 다른 카메라를 골라 다시 시도하거나, Zoom/Teams/카메라 앱을 완전히 종료하세요.";
+        } else if (error.name === "AbortError") {
+          message =
+            "브라우저가 카메라 시작을 중단했습니다. 새로고침 후 다시 시도하거나 다른 브라우저에서 열어보세요.";
+        } else if (error.name === "SecurityError") {
+          message =
+            "보안 정책 때문에 카메라가 차단됐습니다. GitHub 저장소 화면이 아니라 GitHub Pages의 https:// 링크로 직접 열어야 합니다.";
+        }
+
+        showCameraError(
+          message +
+          " / 오류명: " + (error.name || "UnknownError") +
+          deviceInfo +
+          " / 현재 주소: " + location.href
+        );
       }
     }
 
     function stopCamera() {
       if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
+        stopTracks(cameraStream);
         cameraStream = null;
       }
 
@@ -738,7 +854,6 @@
       const randomIndex = getRandomIndex();
       const selectedSample = samples[randomIndex];
 
-      // 소리는 즉시 시작. mp3 안에 "찰칵음 + 약 3초 대기 + 멘트"가 들어 있음.
       playSoundImmediately(selectedSample);
 
       cameraStatus.className = "status loading";
@@ -791,16 +906,6 @@
       imageCard.classList.add("pop");
       screen.classList.add("flash");
     }
-
-    // 시연자용 숨겨진 단축키
-    window.addEventListener("keydown", (event) => {
-      const keyNumber = Number(event.key);
-      if (keyNumber >= 1 && keyNumber <= 5 && !isAnalyzing) {
-        const sample = samples[keyNumber - 1];
-        playSoundImmediately(sample);
-        setTimeout(() => showResult(keyNumber - 1), 3000);
-      }
-    });
   </script>
 </body>
 </html>
